@@ -186,7 +186,8 @@ tags: [实验, C/C++, linux]
 ###四、程序运行过程分析
 ##1、理论分析
 结合C代码和汇编代码来分析程序的运行过程，尤其是栈的变化情况，如图：(标号为上述汇编代码分析中的语句执行标号)  
-![lab1-1]()  
+![lab1-1](https://raw.github.com/inccinf/inccinf.github.com/master/images/howcomputerworks_1.jpg)
+![lab1-2](https://raw.github.com/inccinf/inccinf.github.com/master/images/howcomputerworks_2.jpg)   
 ##2、GDB跟踪
 使用GDB跟踪运行程序，在进入函数的每条语句都插入断点，使用GDB指令查看寄存器状态、栈状态、汇编指令执行情况等。
 
