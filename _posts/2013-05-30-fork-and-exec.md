@@ -9,7 +9,7 @@ tags: [实验, C/C++, linux]
 
 ---
 
-本文作为“linux操作系统分析 of USTC”实验一的报告    
+本文作为“linux操作系统分析 of USTC”实验二的报告    
 姓名：王磊  
 学号：SA12226224  
 
@@ -25,20 +25,20 @@ tags: [实验, C/C++, linux]
 glibc最新版本2.17对于系统调用封装文件的组织方式发生了一些变化，借助cscope的帮助终于找到了系统调用封装的一些线索。  
 对于fork函数，其定义的位置是`glibc/nptl/sysdeps/unix/sysv/linux/fork.c`中，该文件大概130行处调用了`ARCH_FORK()`宏，该宏与体系结构相关，在i386上被展开为`INLINE_SYSCALL()`宏，该宏定义也与体系结构相关，对于i386，其定义在`glibc/sysdeps/unix/sysv/linux/i386/sysdep.h`中：  
 
-```
-# define INTERNAL_SYSCALL(name, err, nr, args...) \
-  ({									      	\
-    register unsigned int resultvar;		\
-    EXTRAVAR_##nr							\
-    asm volatile (							\
-    LOADARGS_##nr							\
-    "movl %1, %%eax\n\t"					\
-    "int $0x80\n\t"							\
-    RESTOREARGS_##nr						\
-    : "=a" (resultvar)						\
-    : "i" (__NR_##name) ASMFMT_##nr(args) : "memory", "cc");		      						\
-    (int) resultvar; })
-```	
+
+	# define INTERNAL_SYSCALL(name, err, nr, args...) \
+  	({									      	\
+    	register unsigned int resultvar;		\
+    	EXTRAVAR_##nr							\
+    	asm volatile (							\
+    	LOADARGS_##nr							\
+    	"movl %1, %%eax\n\t"					\
+    	"int $0x80\n\t"							\
+    	RESTOREARGS_##nr						\
+    	: "=a" (resultvar)						\
+    	: "i" (__NR_##name) ASMFMT_##nr(args) : "memory", "cc");		      						\
+    	(int) resultvar; })
+
 到这里，就可以看到glibc对于fork的封装其实就是使用\__NR_fork对应的系统调用号使用int 0x80真正地进行系统调用完成的，当然还有其他的一些辅助操作。  
 而对于execve函数，其定义位置为`glibc/sysdeps/unix/sysv/linux/execve.c`，其调用了宏`INLINE_SYSCALL (execve, 3, file, argv, envp)`，而该宏的定义与使用方法与fork等系统调用是一样的，所以可以看出glibc对于execve的封装形式就是通过\__NR_execve对应的系统调用号使用int 0x80软中断陷入内核完成真正的系统调用。
 
@@ -47,41 +47,41 @@ glibc最新版本2.17对于系统调用封装文件的组织方式发生了一�
 do_fork的分析：  
 1、开始时，分配了一个指针p指向即将为子进程分配的进程描述符，还有一个long类型的nr，代表子进程的PID。
 
-```
-long do_fork(unsigned long clone_flags,
-	      unsigned long stack_start,
-	      unsigned long stack_size,
-	      int __user *parent_tidptr,
-	      int __user *child_tidptr)
-{
-	struct task_struct *p;
-	int trace = 0;
-	long nr;
 
-```  
+	long do_fork(unsigned long clone_flags,
+		   unsigned long stack_start,
+	   	   unsigned long stack_size,
+	   	   int __user *parent_tidptr,
+	   	   int __user *child_tidptr)
+	{
+		struct task_struct *p;
+		int trace = 0;
+		long nr;
+
+  
 2、进行一些标志位的检查，如果出错则返回。  
 
-```
-if (clone_flags & (CLONE_NEWUSER | CLONE_NEWPID)) {
-		if (clone_flags & (CLONE_THREAD|CLONE_PARENT))
-			return -EINVAL;
-	}
-```
+
+	if (clone_flags & (CLONE_NEWUSER | CLONE_NEWPID)) {
+			if (clone_flags & (CLONE_THREAD|CLONE_PARENT))
+				return -EINVAL;
+		}
+
 3、检测父进程的CLONE_UNTREACED标志位，看父进程是否要进行跟踪，如果需要跟踪，则进行一些设置。跟踪的常见例子是进程被debugger跟踪，除此之外一般情况下跟踪很少发生。  
 4、创建子进程的进程描述符和其他数据结构，是进程创建的核心部分
 
-```
-p = copy_process(clone_flags, stack_start, stack_size,
+
+	p = copy_process(clone_flags, stack_start, stack_size,
 			 child_tidptr, NULL, trace);
 
-```  
+  
 copy_process的主要工作就是创建子进程的进程描述符，由于是由fork产生，所以子进程的进程描述符绝大部分内容应该与父进程一样，而且由于LINUX使用了copy-on-write技术，此时并不需要将父进程的task_struct内容完全拷贝一份到子进程中，而只需要使用指针的方式让父子进行暂时共享大部分的内容，只有当后续父进程或者子进程需要对某处进行写入时，再产生真正的拷贝，这样可以省去绝大多数不必要的内存拷贝操作（因为大部分情况下fork完成后会马上调用exec）。  
 应该注意到，由于在调用fork前，父进程的执行状态（寄存器状态、栈状态等）被保存到了它的task_struct中，所以在新task_struct构造后的子进程具有与父进程几号一致的状态，所以子进程在开始运行后从堆栈返回EIP的位置与父进程一样，这也就是fork后父子进程从同一位置开始进行运行的原因。
 
 5、如果上述过程执行成功，则寻找一个可用的进程号填入子进程描述符，并赋值给nr，进行其他相关设置后，唤醒子进程将其放入就绪队列中，可以被调度运行。
 
-```
-struct completion vfork;
+
+		struct completion vfork;
 
 		trace_sched_process_fork(current, p);
 
@@ -95,7 +95,7 @@ struct completion vfork;
 			init_completion(&vfork);
 			get_task_struct(p);
 		}
-```
+
 6、返回nr，即子进程的进程PID，这也就是fork函数执行后父进程得到的返回值。
 
 附录2 — exec系统调用的执行过程分析  
@@ -105,15 +105,15 @@ do_execve对可执行文件的载入分成两个阶段，第一个阶段是准�
 1.1 初始化`linux_binprm`数据结构，该数据结构将可执行文件时所需的信息组织在一起。  
 1.2 接下来准备将可执行文件加载到内核中，会调用`search_binary_handler`函数，寻找匹配的可执行文件加载模块，这些模块使用数据结构`linux_binfmt`表示并构成一个链表，linux_binfmt有三个函数指针load_binary、load_shlib以及core_dump，其中load_binary就是具体的装载程序，对于ELF格式而言，其装载函数是`load_elf_binary`，位于`linux/fs/binfmt_elf.c`中。  
 
-```
-static struct linux_binfmt elf_format = {
-	.module		= THIS_MODULE,
-	.load_binary	= load_elf_binary,
-	.load_shlib	= load_elf_library,
-	.core_dump	= elf_core_dump,
-	.min_coredump	= ELF_EXEC_PAGESIZE,
+
+	static struct linux_binfmt elf_format = {
+		.module		= THIS_MODULE,
+		.load_binary	= load_elf_binary,
+		.load_shlib	= load_elf_library,
+		.core_dump	= elf_core_dump,
+		.min_coredump	= ELF_EXEC_PAGESIZE,
 };
-```
+
 2、载入阶段  
 这里分析ELF格式的可执行文件载入过程  
 2.1 从准备阶段binprm中读取elf文件头，对文件头进行一些检查。  
